@@ -10,8 +10,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AWS_ACCESS_KEY_ID: AKIAU72LGNC4PF2K4HGU
-      AWS_SECRET_ACCESS_KEY: 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
       AWS_REGION: eu-north-1
       SCP_DIRECTORY: scps/
       POLICY_DESCRIPTION: 'SCP deployed by GitHub Actions'
@@ -23,27 +21,37 @@ jobs:
     - name: Set up AWS CLI
       uses: aws-actions/configure-aws-credentials@v2
       with:
-        aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Deploy SCPs
       run: |
-        for file in $SCP_DIRECTORY*.json; do
-          policy_name=$(basename $file .json)
+        if [ ! -d "$SCP_DIRECTORY" ]; then
+          echo "Error: Directory $SCP_DIRECTORY does not exist."
+          exit 1
+        fi
+
+        if [ -z "$(ls -A $SCP_DIRECTORY*.json 2>/dev/null)" ]; then
+          echo "No JSON files found in $SCP_DIRECTORY"
+          exit 0
+        fi
+
+        for file in "$SCP_DIRECTORY"*.json; do
+          policy_name=$(basename "$file" .json)
           policy_id=$(aws organizations list-policies --filter SERVICE_CONTROL_POLICY --query "Policies[?Name=='$policy_name'].Id" --output text)
 
           if [ -z "$policy_id" ]; then
             echo "Creating new policy: $policy_name"
             aws organizations create-policy \
-              --name $policy_name \
+              --name "$policy_name" \
               --description "$POLICY_DESCRIPTION" \
               --type SERVICE_CONTROL_POLICY \
-              --content file://$file
+              --content "file://$file"
           else
             echo "Updating existing policy: $policy_name"
             aws organizations update-policy \
-              --policy-id $policy_id \
-              --content file://$file
+              --policy-id "$policy_id" \
+              --content "file://$file"
           fi
         done
